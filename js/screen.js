@@ -38,16 +38,19 @@ class Screen {
 
     const widget = new allWidgets[elementClass].widgetClass();
     e.currentTarget.appendChild(widget.node);
-    widget.node.addEventListener('mousedown', this.handleMouseDown.bind(this), false);
+    widget.node.addEventListener('mousedown', this.handleMouseDownMove.bind(this), false);
     widget.node.addEventListener('setstyle', this.setWidgetStyle.bind(this), false);
     widget.node.dispatchEvent(new CustomEvent('setstyle', { detail: { left: e.offsetX, top: e.offsetY } }));
 
     new Resizer(widget.node);
+    widget.node.querySelectorAll('.resizer').forEach(node => {
+      node.addEventListener('mousedown', this.handleMouseDownResize.bind(this), false);
+    });
     return true;
   }
 
   /* widget move */
-  handleMouseDown(e) {
+  handleMouseDownOld_____________(e) {
     this.mouseIsDown = true;
     this.movingWidget = e.currentTarget;
     this.movingWidgetOffset = {
@@ -56,16 +59,100 @@ class Screen {
     }
     this.selectWidget(this.movingWidget);
   }
-  handleMouseUp(e) {
-    this.mouseIsDown = false;
+  handleMouseDownMove(e) {
+    e.stopPropagation();
+    this.mouseIsDownMoving = true;
+    this.movingWidget = e.currentTarget;
+    this.movingInitial = {
+      x: this.movingWidget.offsetLeft,
+      y: this.movingWidget.offsetTop,
+    };
+    this.movingWidgetOffset = {
+      left: this.movingWidget.offsetLeft - e.clientX,
+      top: this.movingWidget.offsetTop - e.clientY,
+    };
+    this.selectWidget(this.movingWidget);
   }
-  handleMouseMove(e) {
+  handleMouseDownResize(e) {
+    e.stopPropagation();
+    this.mouseIsDownResizing = true;
+    this.movingWidget = e.currentTarget.parentNode;
+    this.movingInitial = {
+      x: this.movingWidget.offsetLeft,
+      y: this.movingWidget.offsetTop,
+      height: this.movingWidget.offsetHeight, 
+      width: this.movingWidget.offsetWidth
+    };
+    this.movingWidgetOffset = {
+      left: e.pageX,
+      top: e.pageY,
+      dx: parseInt(e.currentTarget.dataset.w, 10),
+      dy: parseInt(e.currentTarget.dataset.h, 10),
+    };
+    this.selectWidget(this.movingWidget);
+  }
+  handleMouseUp(e) {
+    this.mouseIsDownMoving = false;
+    this.mouseIsDownResizing = false;
+  }
+  handleMouseMove_____________________________(e) {
     if (this.mouseIsDown) {
       e.preventDefault();
       this.movingWidget.dispatchEvent(new CustomEvent('setstyle', { detail: {
         left: e.clientX + this.movingWidgetOffset.left,
         top:  e.clientY + this.movingWidgetOffset.top,
       }}));
+    }
+  }
+  handleMouseMove(e) {
+    if (this.mouseIsDownMoving) {
+      e.preventDefault();
+      const target = {
+        x: Math.min(
+          this.node.offsetWidth  - this.movingWidget.offsetWidth,
+          Math.max(0, Math.trunc((e.clientX + this.movingWidgetOffset.left) / 2) * 2)
+        ),
+        y: Math.min(
+          this.node.offsetHeight - this.movingWidget.offsetHeight,
+          Math.max(0, Math.trunc((e.clientY + this.movingWidgetOffset.top) / 2) * 2)
+        )
+      };
+      const step = {
+        x: Math.sign(target.x - this.movingInitial.x) * 2,
+        y: Math.sign(target.y - this.movingInitial.y) * 2,
+      }
+      const state = this.transformWidget(null, this.movingInitial, step, target);
+      this.setWidgetStyles(this.movingWidget, state);
+    }
+
+    if (this.mouseIsDownResizing) {
+      e.preventDefault();
+      let moveX = e.pageX - this.movingWidgetOffset.left;
+      let moveY = e.pageY - this.movingWidgetOffset.top;
+      let maxMove = Math.max(Math.abs(moveX), Math.abs(moveY));
+      const sign = Math.abs(moveX) > Math.abs(moveY) ? Math.sign(moveX) : Math.sign(moveY);
+      moveX = Math.sign(moveX) * sign * maxMove;
+      moveY = Math.sign(moveY) * sign * maxMove;
+      // moveX trunc 2
+      const target = {
+        height: this.movingInitial.height + moveY * this.movingWidgetOffset.dy,
+        width: this.movingInitial.width + moveX * this.movingWidgetOffset.dx
+      };
+      const step = {
+        width: Math.sign(moveX * this.movingWidgetOffset.dx) * 2,
+        height: Math.sign(moveY * this.movingWidgetOffset.dy) * 2,
+      };
+      if (this.movingWidgetOffset.dx < 0) {
+        target.x = this.movingInitial.x + moveX;
+        step.x = Math.sign(target.x - this.movingInitial.x) * 2;
+      }
+      if (this.movingWidgetOffset.dy < 0) {
+        target.y = this.movingInitial.y + moveY;
+        step.y = Math.sign(target.y - this.movingInitial.y) * 2;
+      }
+      const state = this.transformWidget(null, this.movingInitial, step, target);
+      this.setWidgetStyles(this.movingWidget, state);
+      console.log('resize', moveX, moveY, moveX * this.movingWidgetOffset.dx, moveY * this.movingWidgetOffset.dy, state);
     }
   }
 
@@ -116,6 +203,40 @@ class Screen {
     // console.log(e.target, e.detail);
     Object.assign(e.target.style, e.detail);
   }
+
+  transformWidget(id, initial, step, target) {
+    console.log(initial, step, target);
+    let state = Object.assign({}, initial);
+    let counter = 0;
+    let result = null;
+    while (!result) {
+      const nextState = Object.assign({}, state);
+      Object.keys(step).forEach(prop => nextState[prop] += step[prop]);
+      // if valid continue else return state
+      Object.keys(target).forEach(prop => {
+        if (nextState[prop] == target[prop]) {
+          delete step[prop];
+          if (Object.keys(step).length === 0) {
+            result = Object.assign({}, nextState);
+          }
+        }
+      });
+      state = nextState;
+      if (++counter > 2000) return {};
+    }
+    return result;
+  }
+  setWidgetStyles(widget, state) {
+    const props = { x: 'left', y: 'top', width: 'width', height: 'height' };
+    const style = {};
+    Object.keys(props).forEach(prop => {
+      if (state.hasOwnProperty(prop)) {
+        style[props[prop]] = state[prop] + 'px';
+      }
+    });
+    Object.assign(widget.style, style);
+  }
+
 }
 
 export default Screen;

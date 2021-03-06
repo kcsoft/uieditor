@@ -52,10 +52,10 @@ class Resizer {
       this.appendResizerSE({}),
       this.appendResizerSW({}),
     ];
-    nodes.forEach(node => {
+    /*nodes.forEach(node => {
       node.addEventListener('mousedown', this.handleMouseDown.bind(this), false); 
     });
-    resizerStatic.init();
+    resizerStatic.init();*/
   }
 
   handleMouseDown(e) {
@@ -83,6 +83,7 @@ class Resizer {
       width: this.size + 'px',
       cursor: 'nw-resize',
     }, styles);
+    node.classList.add('resizer');
     this.element.appendChild(node);
     node.dataset.w = '-1';
     node.dataset.h = '-1';
@@ -130,6 +131,7 @@ class Resizer {
       width: this.size + 'px',
       cursor: 'w-resize',
     }, styles);
+    node.classList.add('resizer');
     this.element.appendChild(node);
     node.dataset.w = '-1';
     node.dataset.h = '0';
